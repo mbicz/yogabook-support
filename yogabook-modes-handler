@@ -126,6 +126,7 @@ while True:
             logging.info(e)
             selector.unregister(device)
             del monitored_devices[device.path]
+            continue
 
         handle_input_event(event)
 
