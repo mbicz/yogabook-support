@@ -1,9 +1,14 @@
 #!/usr/bin/python3
 
 import evdev, evdev.ecodes as ecodes
+import array
+import fcntl
+import glob
+import signal
 import subprocess
 import sys
 import os
+import threading
 import time
 import queue
 import selectors
@@ -39,6 +44,122 @@ def handle_input_event(event):
         else:
             logging.info("Lid is opened, enabling touchscreen")
             enable_touchscreen()
+
+# Posture. libinput, GNOME and KDE read SW_TABLET_MODE as "the keyboard is out
+# of the way": desktops enable automatic screen rotation only in tablet mode.
+# The kernel's tablet mode switch reports the back-side hall sensor, which
+# closes only when the machine is folded flat. The screen should also rotate
+# while the machine lies open flat (hinge ~178 degrees) and in stand or tent
+# poses, so the switch published here is on when the machine is folded or the
+# hinge is open past TABLET_ON_DEG, and off again once the hinge is back in
+# laptop range. libinput ignores the kernel switch (61-yogabook-tablet-mode.rules):
+# two tablet mode switches would override each other.
+KERNEL_SWITCH = "Lenovo Yoga Book Tablet Mode Switch"
+POSTURE_SWITCH = "Lenovo Yoga Book Posture Switch"
+TABLET_ON_DEG = 165     # hinge at or above: tablet mode
+TABLET_OFF_DEG = 155    # hinge LAPTOP_MIN_DEG..TABLET_OFF_DEG: laptop mode
+LAPTOP_MIN_DEG = 30     # below: closed, or folded flat (reads up to ~24)
+POSTURE_POLL_S = 0.5
+POSTURE_SETTLE = 2      # agreeing hinge polls before a change
+
+def eviocgsw(fd):
+    bits = array.array('B', [0] * 8)
+    fcntl.ioctl(fd, (2 << 30) | (len(bits) << 16) | (ord('E') << 8) | 0x1b, bits)
+    return bits
+
+def find_kernel_switch():
+    for path in sorted(glob.glob("/dev/input/event*")):
+        try:
+            ed = evdev.InputDevice(path)
+        except OSError:
+            continue
+        if ed.name == KERNEL_SWITCH:
+            return ed
+        ed.close()
+    return None
+
+def find_hinge():
+    # The first angle channel of the "hinge" IIO sensor is the angle between
+    # the halves; iio:deviceN numbers follow probe order.
+    for label in sorted(glob.glob("/sys/bus/iio/devices/iio:device*/in_angl0_label")):
+        try:
+            with open(label) as f:
+                if f.read().strip() == "hinge":
+                    return os.path.join(os.path.dirname(label), "in_angl0_raw")
+        except OSError:
+            continue
+    return None
+
+def read_hinge(path):
+    try:
+        with open(path) as f:
+            return int(f.read()) % 360
+    except (OSError, ValueError):
+        return None
+
+def posture_loop(ui):
+    kernel_sw = None
+    hinge = find_hinge()
+    if not hinge:
+        logging.warning("No hinge angle sensor: tablet mode follows the hall sensor only")
+    tablet = None
+    votes = 0
+
+    while True:
+        if kernel_sw is None:
+            kernel_sw = find_kernel_switch()
+        folded = False
+        if kernel_sw is not None:
+            try:
+                folded = bool(eviocgsw(kernel_sw.fd)[ecodes.SW_TABLET_MODE // 8] &
+                              (1 << (ecodes.SW_TABLET_MODE % 8)))
+            except OSError:
+                kernel_sw.close()
+                kernel_sw = None
+        angle = read_hinge(hinge) if hinge else None
+
+        if folded:
+            want, votes = True, POSTURE_SETTLE
+        elif not hinge:
+            want, votes = False, POSTURE_SETTLE
+        elif angle is not None and angle >= TABLET_ON_DEG:
+            want = True
+        elif angle is not None and LAPTOP_MIN_DEG <= angle <= TABLET_OFF_DEG:
+            want = False
+        else:
+            # Unreadable, in the hysteresis band, closed, or a wrapped reading
+            # while folding: keep the current pose.
+            want = bool(tablet)
+
+        if tablet is None or want != tablet:
+            votes += 1
+            if tablet is None or votes >= POSTURE_SETTLE:
+                tablet = want
+                ui.write(ecodes.EV_SW, ecodes.SW_TABLET_MODE, int(tablet))
+                ui.syn()
+                logging.info("Posture: {} (hinge {}, folded {})".format(
+                    "tablet" if tablet else "laptop", angle, folded))
+                votes = 0
+        else:
+            votes = 0
+        time.sleep(POSTURE_POLL_S)
+
+def run_posture(ui):
+    while True:
+        try:
+            posture_loop(ui)
+        except Exception as e:
+            logging.error("Posture switch failed: {}".format(e))
+            time.sleep(5)
+
+def stop(signum, frame):
+    # Leave tablet mode before the switch disappears: a switch removed while on
+    # leaves desktops in tablet mode, and its successor starts off without an
+    # event that would correct them.
+    posture_ui.write(ecodes.EV_SW, ecodes.SW_TABLET_MODE, 0)
+    posture_ui.syn()
+    time.sleep(0.2)
+    sys.exit(0)
 
 monitored_devices = {}
 
@@ -94,6 +215,12 @@ for device in context.list_devices(subsystem="input"):
 selector = selectors.DefaultSelector()
 for node, ed in monitored_devices.items():
     selector.register(ed, selectors.EVENT_READ)
+
+posture_ui = evdev.UInput({ecodes.EV_SW: [ecodes.SW_TABLET_MODE]}, name=POSTURE_SWITCH,
+                          bustype=ecodes.BUS_HOST, phys="yogabook-modes-handler/input0")
+signal.signal(signal.SIGTERM, stop)
+signal.signal(signal.SIGINT, stop)
+threading.Thread(target=run_posture, args=(posture_ui,), daemon=True).start()
 
 
 while True:

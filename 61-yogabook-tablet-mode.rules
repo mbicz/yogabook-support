@@ -1,0 +1,6 @@
+# The kernel's tablet mode switch reports only the back-side hall sensor
+# (folded flat). yogabook-modes-handler combines it with the hinge angle into
+# "Lenovo Yoga Book Posture Switch", which is on also while the machine lies
+# open flat or stands in tent pose. libinput must see only that switch: two
+# tablet mode switches would override each other.
+ACTION!="remove", SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Lenovo Yoga Book Tablet Mode Switch", ENV{LIBINPUT_IGNORE_DEVICE}="1"
