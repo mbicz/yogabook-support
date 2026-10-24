@@ -1,3 +1,12 @@
+yogabook-support (1.6.1+yb1) unstable; urgency=medium
+
+  * yogabook-modes-handler: keep running when a device goes away.
+  * Report tablet mode also while the machine lies open flat or stands in
+    tent pose: a posture switch combines the hinge angle with the kernel
+    tablet mode switch, which libinput now ignores.
+
+ -- Michal Bicz <michal@bicz.net>  Fri, 23 Oct 2026 21:00:00 -0700
+
 yogabook-support (1.6.1) unstable; urgency=medium
 
   * Remove Debian-specific dependencies on firmware packages to be an Ubuntu
