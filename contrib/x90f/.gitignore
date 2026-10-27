@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.aml
+*.bin
+*.hcd
+*.nmea
+*.strace
+*.json
+runtime/
+android-gps-*/

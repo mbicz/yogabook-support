@@ -1,0 +1,16 @@
+[Unit]
+Description=Bind Wacom digitizer i2c client to i2c-hid-of (late-probe workaround)
+# 6.17.4-yogabook6: i2c-wacom client's probe is lost when its fixed regulator
+# is unregistered during boot (see docs/01, regression vs 6.6.8). Manual bind works.
+DefaultDependencies=no
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/yogabook-fix-wacom-bind
+# No RemainAfterExit: yogabook-fix-wacom.timer re-starts this unit
+# every 30s; it must be able to run again after exiting.
+
+[Install]
+WantedBy=multi-user.target

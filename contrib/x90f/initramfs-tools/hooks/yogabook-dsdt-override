@@ -1,0 +1,49 @@
+#!/bin/sh
+# Prepend corrected Yoga Book ACPI tables as an early uncompressed cpio.
+# Camera kernels use the existing camera DSDT. Only explicitly thermal-tagged
+# camera kernels also receive the thermal DSDT/SSDT corrections, which require
+# native CHT Whiskey Cove ADC operation-region support.
+# Sources: device/acpi/patch_dsdt_cameras.py and patch_thermal_tables.py.
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in
+prereqs) prereqs; exit 0 ;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+# Feature tokens are tested independently so the release string can list them in
+# any order; release names sort them ASCII-ascending.
+cam=0 thermal=0
+case "${version}" in
+*-cam*) cam=1 ;;
+esac
+case "${version}" in
+*-thermal*) thermal=1 ;;
+esac
+
+[ "$cam" = 1 ] || exit 0
+
+AML=/etc/yogabook/dsdt-yb-cam.aml
+SSDT=""
+case "${version}" in
+*-thermal*)
+    AML=/etc/yogabook/dsdt-yb-thermal.aml
+    SSDT=/etc/yogabook/ssdt-yb-thermal.aml
+    if [ ! -r "$AML" ] || [ ! -r "$SSDT" ]; then
+        echo "Yoga Book thermal kernel requires both corrected ACPI tables" >&2
+        exit 1
+    fi
+    ;;
+*) [ -r "$AML" ] || exit 0 ;;
+esac
+
+workdir=$(mktemp -d) || exit 1
+trap 'rm -rf "$workdir"' EXIT
+mkdir -p "$workdir/kernel/firmware/acpi" || exit 1
+cp "$AML" "$workdir/kernel/firmware/acpi/dsdt.aml" || exit 1
+if [ -n "$SSDT" ]; then
+    cp "$SSDT" "$workdir/kernel/firmware/acpi/ssdt.aml" || exit 1
+fi
+(cd "$workdir" && find kernel | cpio -H newc --create --quiet) > "$workdir/acpi.cpio" || exit 1
+prepend_earlyinitramfs "$workdir/acpi.cpio"

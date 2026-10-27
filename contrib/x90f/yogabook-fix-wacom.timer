@@ -1,0 +1,15 @@
+[Unit]
+Description=Re-check Wacom digitizer binding every 30s
+
+[Timer]
+# The i2c-wacom client also loses its driver later in the session
+# (observed unbinding together with halo/Goodix re-probes on mode
+# switches), not only mid-boot. The bind script is idempotent and
+# exits immediately when the driver is already bound.
+OnBootSec=1min
+OnUnitActiveSec=30s
+AccuracySec=5s
+Unit=yogabook-fix-wacom.service
+
+[Install]
+WantedBy=timers.target

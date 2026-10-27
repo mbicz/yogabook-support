@@ -1,0 +1,12 @@
+# Yoga Book YB1-X90F: identify the physical HID hubs, not allocated .auto IDs.
+# 8086:0001 is the display hub; 8086:0002 is the base hub (physically verified).
+# The trailing HID instance, platform instance and iio:deviceN can all change.
+SUBSYSTEM!="iio", GOTO="yogabook_accel_end"
+ATTR{name}!="accel_3d", GOTO="yogabook_accel_end"
+ATTR{[dmi/id]product_name}!="CHERRYVIEW D1 PLATFORM", GOTO="yogabook_accel_end"
+ATTR{[dmi/id]bios_version}!="CHTTYETI.*", GOTO="yogabook_accel_end"
+
+KERNELS=="001F:8086:0001.*", ENV{ACCEL_LOCATION}="display"
+KERNELS=="001F:8086:0002.*", ENV{ACCEL_LOCATION}="base", ENV{ACCEL_MOUNT_MATRIX}="0, 1, 0; -1, 0, 0; 0, 0, 1"
+
+LABEL="yogabook_accel_end"

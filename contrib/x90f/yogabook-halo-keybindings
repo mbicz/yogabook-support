@@ -1,0 +1,29 @@
+#!/usr/bin/python3
+"""Add GNOME's missing Halo app-grid/overview bindings, retaining user shortcuts.
+
+Run as the desktop user in their session (or under dbus-run-session).
+The other icon actions use GNOME's standard media/input-source bindings.
+Edit the layout CSV for Linux keycodes; edit BINDINGS for these GNOME actions.
+"""
+import os
+
+from gi.repository import Gio
+
+BINDINGS = {
+    "toggle-application-view": "XF86LaunchB",  # Fn+F9: all applications
+    "toggle-overview": "XF86LaunchA",          # Fn+F11: edit/workspace overview
+}
+
+if os.geteuid() == 0:
+    raise SystemExit("Run as the desktop user, not root")
+if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+    raise SystemExit("Run in the desktop session or use dbus-run-session")
+
+settings = Gio.Settings.new("org.gnome.shell.keybindings")
+for key, accelerator in BINDINGS.items():
+    current = settings.get_strv(key)
+    if accelerator not in current:
+        if not settings.set_strv(key, [*current, accelerator]):
+            raise SystemExit(f"Cannot write GNOME binding {key}")
+    print(f"{key}: {settings.get_strv(key)}")
+Gio.Settings.sync()

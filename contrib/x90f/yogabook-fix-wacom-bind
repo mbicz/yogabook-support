@@ -1,0 +1,13 @@
+#!/bin/sh
+# Re-bind the Wacom digitizer if its driver didn't stick at boot.
+# Context: on 6.17.4-yogabook6 the i2c-wacom client loses its probe when the
+# fixed regulator for it is unregistered mid-boot (regression vs 6.6.8).
+CLIENT=i2c-wacom
+DRV=i2c_hid_of
+
+if [ -e "/sys/bus/i2c/devices/$CLIENT/driver" ]; then
+	exit 0
+fi
+if [ -d "/sys/bus/i2c/drivers/$DRV" ] && [ -e "/sys/bus/i2c/devices/$CLIENT" ]; then
+	echo "$CLIENT" > "/sys/bus/i2c/drivers/$DRV/bind" 2>/dev/null || true
+fi
